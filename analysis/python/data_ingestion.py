@@ -104,7 +104,7 @@ def normalize_other(d):
     keep_cols=['primarysource.qualification',
                'receivedate',
                'receiptdata',
-               'primarysource.reportercountry'
+               'primarysource.reportercountry',
                'patient.patientonsetage',
                'patient.patientsex',
                'patient.patientweight',
