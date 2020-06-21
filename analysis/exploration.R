@@ -102,3 +102,23 @@ freq_quals %>% group_by(yr) %>%
   scale_y_continuous(labels = scales::percent_format())+
   labs(x = 'Year', y = 'Percent', title = 'Who reports (USA)', caption='Source: openfda.gov') + 
   theme_classic()
+
+## Gender-based reporting
+## 
+freq_gender <- map(yrs, 
+                  ~fda_query('/drug/event.json') %>% 
+                    fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+                    fda_filter('patient.drug.drugindication','multiple') %>% 
+                    fda_count('patient.patientsex') %>% 
+                    fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+
+freq_gender <- reduce(freq_gender, full_join) %>% 
+  gather(yr, counts, -term) %>% 
+  mutate(yr = as.numeric(str_remove(yr, 'count_')))
+freq_gender %>% filter(term!= '0') %>% 
+  spread(term, counts) %>% 
+  as_tabyl() %>% 
+  adorn_percentages() %>% 
+  adorn_pct_formatting()
+
+
