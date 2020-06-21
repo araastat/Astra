@@ -9,9 +9,12 @@
 
 This project is part of a technical evaluation at AstraZeneca. The
 project involves analyzing data from the FDA’s Adverse Event Reporting
-System (FAERS).
+System (FAERS). My approach involves trying to understand the
+characteristics of the patients and reporters both within the US and
+globally, since the FAERS is a voluntary system and does not
+automatically vacuum up data from healthcare systems.
 
-In this project, the pure scripts are in the `analytics` folder, but the
+In this project, the pure scripts are in the `analysis` folder, but the
 reports via RMarkdown are in the `docs` folder.
 
 Some analysis was done using the openFDA API, mainly in investigating
