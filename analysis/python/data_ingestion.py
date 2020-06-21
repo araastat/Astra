@@ -114,7 +114,8 @@ def normalize_other(d):
                'seriousnessdisabling',
                'seriousnesshospitalization',
                'seriousnesslifethreatening',
-               'seriousnessother']
+               'seriousnessother',
+               'seriousnesscongenitalanomali']
     keep_cols_reaction = ['reactionmeddrapt',
                           'reactionoutcome']
     

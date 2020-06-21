@@ -1,0 +1,24 @@
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# Astra
+
+<!-- badges: start -->
+
+<!-- badges: end -->
+
+This project is part of a technical evaluation at AstraZeneca. The
+project involves analyzing data from the FDA’s Adverse Event Reporting
+System (FAERS).
+
+In this project, the pure scripts are in the `analytics` folder, but the
+reports via RMarkdown are in the `docs` folder.
+
+Some analysis was done using the openFDA API, mainly in investigating
+temporal patterns. For others, data from 2020 was downloaded. Data from
+other years were not downloaded in the interests of time and memory.
+
+The download script is in `ingest.R`, and then the initial processing
+script is in `data_ingestion.py`. I chose to do the data munging in
+Python since, given the size of the daa set, I felt Python would be more
+efficient. I felt that R would be more efficient for analysis.

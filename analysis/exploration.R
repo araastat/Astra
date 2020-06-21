@@ -27,10 +27,10 @@ freq_indications <- map(yrs,
                           fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
                           fda_count('patient.drug.drugindication.exact') %>% 
                           fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
-blah = reduce(freq_indications, full_join) %>% 
+freq_indications = reduce(freq_indications, full_join) %>% 
   gather(yr, count, -term) %>% 
   mutate(yr = as.numeric(str_remove(yr, 'count_')))
-blah %>% nest(-yr, data=c(term,count)) %>% 
+freq_indications %>% nest(-yr, data=c(term,count)) %>% 
   mutate(data = map(data, slice_max, count, n=10)) %>% 
   unnest() %>% select(-count) %>% 
   janitor::tabyl(term, yr) %>% 
@@ -72,18 +72,18 @@ freq_quals %>% group_by(yr) %>%
   ggplot(aes(x = yr, y = counts, fill = qualification)) + 
     geom_bar(stat='identity', position='fill') + 
     scale_y_continuous(labels = scales::percent_format())+
-  labs(x = 'Year', y = 'Percent', title = 'Who reports (USA)', caption='Source: openfda.gov') + 
+  labs(x = 'Year', y = 'Percent', title = 'Who reports (World)', caption='Source: openfda.gov') + 
   theme_classic()
 
 ### World
 ### 
 
-freq_quals <- map(yrs, 
+freq_quals_world <- map(yrs, 
                   ~fda_query('/drug/event.json') %>% 
                     fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
                     fda_count('primarysource.qualification') %>% 
                     fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
-freq_quals <- reduce(freq_quals, full_join) %>% 
+freq_quals_world <- reduce(freq_quals_world, full_join) %>% 
   gather(yr, counts, -term) %>% 
   mutate(yr = as.numeric(str_remove(yr, 'count_')))
 quals_key = tribble(~code,~qualification,
@@ -92,9 +92,9 @@ quals_key = tribble(~code,~qualification,
                     3, 'Other health professional',
                     4, 'Lawyer',
                     5, 'Consumer or non-health professional')
-freq_quals <- freq_quals %>% left_join(quals_key, by=c('term'='code'))
+freq_quals_world <- freq_quals_world %>% left_join(quals_key, by=c('term'='code'))
 
-freq_quals %>% group_by(yr) %>% 
+freq_quals_world %>% group_by(yr) %>% 
   mutate(perc = counts/sum(counts, na.rm=T)*100) %>% 
   ungroup() %>% 
   ggplot(aes(x = yr, y = counts, fill = qualification)) + 
@@ -108,7 +108,7 @@ freq_quals %>% group_by(yr) %>%
 freq_gender <- map(yrs, 
                   ~fda_query('/drug/event.json') %>% 
                     fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
-                    fda_filter('patient.drug.drugindication','multiple') %>% 
+                    # fda_filter('patient.drug.drugindication','multiple') %>% 
                     fda_count('patient.patientsex') %>% 
                     fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
 
@@ -116,15 +116,39 @@ freq_gender <- reduce(freq_gender, full_join) %>%
   gather(yr, counts, -term) %>% 
   mutate(yr = as.numeric(str_remove(yr, 'count_')))
 freq_gender %>% filter(term!= '0') %>% 
-  spread(term, counts) %>% 
+  spread(term, count) %>% 
   as_tabyl() %>% 
   adorn_percentages() %>% 
   adorn_pct_formatting()
 
+## Serious outcomes
 
+freq_serious <- map(yrs, 
+                    ~fda_query('/drug/event.json') %>% 
+                      fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+                      fda_count('serious') %>% 
+                      fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+
+freq_serious <- reduce(freq_serious, full_join) %>% 
+  gather(yr, counts, -term) %>% 
+  mutate(yr = as.numeric(str_remove(yr, 'count_')))
+  
+freq_serious <- freq_serious %>% 
+  mutate(term = ifelse(term==1, 'serious','non-serious'))
+ggplot(freq_serious, aes(x = yr, y = count, fill = as.factor(term)))+
+  geom_bar(stat='identity', position='fill') + 
+  geom_hline(yintercept = 0.5, linetype=2)+
+  scale_x_continuous('Year')+
+  scale_y_continuous('Percent', labels = scales::percent_format())+
+  scale_fill_manual(values = c('serious'='red', 'non-serious'='skyblue'))+
+  theme_classic() + 
+  labs(fill = 'Seriousness')
+
+
+## temporal patterns in frequency
 monthly <- as.character(1:12) %>% str_pad(2, side='left', pad='0')
 dt <- expand.grid(yrs[-17], monthly) %>% unite('dt',c('Var1','Var2'), sep='', remove=F) %>% arrange(dt) %>% 
-  mutate(start_date='01')
+  mutate(start_date='01') 
 month_ends = tribble(~monthly,~end_date,
                      '01','31',
                      '02','28',
@@ -149,3 +173,4 @@ ggplot(dt, aes(x = as.Date(start_date, '%Y%m%d'), y = n))+
   theme_bw()
 
 
+save(dt, freq_gender, freq_country,freq_indications, freq_serious, freq_quals, file = here('data','freqs.rda'), compress=T)

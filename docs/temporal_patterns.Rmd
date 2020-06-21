@@ -1,0 +1,237 @@
+---
+title: "Temporal patterns"
+author: "Abhijit Dasgupta, PhD"
+date: "6/19/2020"
+output: 
+  html_document:
+    theme: journal
+    highlight: zenburn
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(openfda)
+library(here)
+library(janitor)
+library(knitr)
+load(here('data/freqs.rda'))
+```
+
+# Introduction
+
+The openFDA API is a means to access information about adverse events reported to the FDA from
+2004 onwards. In this paper, we use the online API and the R package `openfda` to investigate 
+temporal patterns in adverse events reporting. The primary interest is in characterizing who is reporting adverse
+events, given that reporting adverse events to the FDA is voluntary. 
+
+# Qualifications of the reporter
+
+The reporters can be in one of 5 categories:
+
+```{r, echo=F}
+unique(freq_quals$qualification)
+```
+
+The following graph looks at the proportion of adverse events by reporters of each 
+cateogory in each year from 2004 onwards. (Due to limitations in the number of allowed API
+calls, I am presenting an earlier figure, and also providing the code). 
+
+```{r, echo=T, eval=F}
+yrs <- seq(2004:2020)
+freq_quals_world <- map(yrs, 
+                  ~fda_query('/drug/event.json') %>% 
+                    fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+                    fda_count('primarysource.qualification') %>% 
+                    fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+freq_quals_world <- reduce(freq_quals_world, full_join) %>% 
+  gather(yr, counts, -term) %>% 
+  mutate(yr = as.numeric(str_remove(yr, 'count_')))
+quals_key = tribble(~code,~qualification,
+                    1, 'Physician',
+                    2, 'Pharmacist',
+                    3, 'Other health professional',
+                    4, 'Lawyer',
+                    5, 'Consumer or non-health professional')
+freq_quals_world <- freq_quals_world %>% left_join(quals_key, by=c('term'='code'))
+
+freq_quals_world %>% group_by(yr) %>% 
+  mutate(perc = counts/sum(counts, na.rm=T)*100) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = yr, y = counts, fill = qualification)) + 
+  geom_bar(stat='identity', position='fill') + 
+  scale_y_continuous(labels = scales::percent_format())+
+  labs(x = 'Year', y = 'Percent', title = 'Who reports (USA)', caption='Source: openfda.gov') + 
+  theme_classic()
+```
+
+```{r, echo=F, eval=T}
+knitr::include_graphics(here('graphs/reporting_World.png'))
+```
+
+It is clear that worldwide, a greater proportion of advverse events are reported
+by consumers and non-health professionals, while the proportion reported by physicians
+shows a steady decline. For the US, on the other hand, the relative proportions have been relatively
+steady, though the proportion of AE reported by physicians is declining, as seen below. It is also gratifying to
+see that the role of lawyers in reporting adverse events has decreased over time. 
+
+```{r, echo=T, eval=F}
+freq_quals <- map(yrs, 
+                        ~fda_query('/drug/event.json') %>% 
+                          fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+                          fda_filter('primarysource.reportercountry.exact','US') %>% 
+                          fda_count('primarysource.qualification') %>% 
+                          fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+freq_quals <- reduce(freq_quals, full_join) %>% 
+  gather(yr, counts, -term) %>% 
+  mutate(yr = as.numeric(str_remove(yr, 'count_')))
+quals_key = tribble(~code,~qualification,
+                    1, 'Physician',
+                    2, 'Pharmacist',
+                    3, 'Other health professional',
+                    4, 'Lawyer',
+                    5, 'Consumer or non-health professional')
+freq_quals <- freq_quals %>% left_join(quals_key, by=c('term'='code'))
+
+freq_quals %>% group_by(yr) %>% 
+  mutate(perc = counts/sum(counts, na.rm=T)*100) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = yr, y = counts, fill = qualification)) + 
+    geom_bar(stat='identity', position='fill') + 
+    scale_y_continuous(labels = scales::percent_format())+
+  labs(x = 'Year', y = 'Percent', title = 'Who reports (World)', caption='Source: openfda.gov') + 
+  theme_classic()
+
+```
+
+```{r, echo=F, eval=T}
+knitr::include_graphics(here('graphs/reporting_US.png'))
+```
+
+# Countries
+
+The US remains the largerst reported of adverse events to the FDA, though other countries do 
+report in large numbers as well. Here we compare the numbers of reported adverse events
+among the top 10 countries in reporting AE in 2019.
+
+```{r, message=F, warning=F}
+# freq_country <- map(yrs, ~fda_query('/drug/event.json') %>% 
+#       fda_filter('receivedate',paste0('[',.x,'0101+TO+',.x,'1231]')) %>% 
+#       fda_count('primarysource.reportercountry.exact') %>% 
+#       fda_limit(1000) %>% fda_exec() %>% set_names(c('term', paste('count',.x, sep='_'))))
+bl = reduce(freq_country, right_join) %>% 
+  gather(year, count,-term) %>% 
+  mutate(year = as.numeric(str_remove(year, 'count_'))) %>% 
+  mutate(term = ifelse(term=='COUNTRY NOT SPECIFIED', NA, term))
+
+top_10 <- bl %>% filter(year==2019, !is.na(term)) %>% slice_max(count, n=10)
+
+ggplot(bl %>% filter(year < 2020, !is.na(term), term %in% top_10$term), aes(x = year, y=count, color=term))+
+  geom_line(show.legend=T) + scale_y_log10('Frequency', labels = scales::comma_format()) +
+  labs(x='Year', color='Country') + theme_classic()
+
+```
+On the log-scale, all the countries show a similar temporal pattern, with several countries 
+contributing 10s of thousands of reports each year. We will note here that the number of 
+countries contributing to FAERS has increased from `r sum(bl$year[bl$count > 0]==2004, na.rm=T)` in 2004 to 
+`r sum(bl$year[bl$count > 0]==2020, na.rm=T)` in 2020. 
+
+# Indicators
+
+The health indicators with the highest frequency of AE reports has changed over time. 
+We look at the top 10 indicators in terms of frequency of AE reports for each year. The 
+following table shows this set of indicators and the years they made the top 10.
+
+```{r, warning=F, message=F}
+# freq_indications <- map(yrs, 
+#                         ~fda_query('/drug/event.json') %>% 
+#                           fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+#                           fda_count('patient.drug.drugindication.exact') %>% 
+#                           fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+# freq_indications = reduce(freq_indications, full_join) %>% 
+#   gather(yr, count, -term) %>% 
+#   mutate(yr = as.numeric(str_remove(yr, 'count_')))
+freq_indications %>% nest(-yr, data=c(term,count)) %>% 
+  mutate(data = map(data, slice_max, count, n=10)) %>% 
+  unnest() %>% select(-count) %>% 
+  janitor::tabyl(term, yr) %>% 
+  janitor::adorn_totals('col') %>% 
+  arrange(-Total)
+
+```
+
+This table shows some interesting patterns. First, hypertension, 
+MS and rheumatoid arthritis have been in the top 10 highest reported adverse events
+all 17 years, and pain fell off just in 2020, for which we have partial data. Depression and contraception
+have fallen off the top 10 list in recent years, indicating, perhaps, medicines better suited to 
+user's needs. 
+
+# Seriousness of adverse events
+
+The following figure shows the proportion of adverse events that were deemed serious. 
+
+```{r}
+# freq_serious <- map(yrs, 
+#                     ~fda_query('/drug/event.json') %>% 
+#                       fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+#                       fda_count('serious') %>% 
+#                       fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+# 
+# freq_serious <- reduce(freq_serious, full_join) %>% 
+#   gather(yr, counts, -term) %>% 
+#   mutate(yr = as.numeric(str_remove(yr, 'count_')))
+  
+freq_serious <- freq_serious %>% 
+  mutate(term = ifelse(term==1, 'serious','non-serious'))
+ggplot(freq_serious, aes(x = yr, y = count, fill = as.factor(term)))+
+  geom_bar(stat='identity', position='fill') + 
+  geom_hline(yintercept = 0.5, linetype=2)+
+  scale_x_continuous('Year')+
+  scale_y_continuous('Percent', labels = scales::percent_format())+
+  scale_fill_manual(values = c('serious'='red', 'non-serious'='skyblue'))+
+  theme_classic() + 
+  labs(fill = 'Seriousness')
+
+```
+
+We see that the reporting of non-serious events has increased significantly over 
+the years, pointing to (a) more awareness of reporting and (b) understanding that
+non-serious events also should be reported. 
+
+# Gender
+
+The following table shows the proportion of reported events by gender.
+
+```{r}
+# freq_gender <- map(yrs, 
+#                   ~fda_query('/drug/event.json') %>% 
+#                     fda_filter('receivedate', paste0('[', .x, '0101+TO+',.x,'1231]')) %>% 
+#                     # fda_filter('patient.drug.drugindication','multiple') %>% 
+#                     fda_count('patient.patientsex') %>% 
+#                     fda_limit(1000) %>% fda_exec() %>% set_names(c('term',paste('count', .x, sep='_'))))
+# 
+# freq_gender <- reduce(freq_gender, full_join) %>% 
+#   gather(yr, counts, -term) %>% 
+#   mutate(yr = as.numeric(str_remove(yr, 'count_')))
+
+freq_gender %>% filter(term!= '0') %>% 
+  mutate(term=ifelse(term=='1', 'Male','Female')) %>% 
+  rename(Gender=term) %>% 
+  spread(Gender, count) %>% 
+  rename(Year=yr) %>% 
+  as_tabyl() %>% 
+  adorn_percentages() %>% 
+  adorn_pct_formatting() %>% 
+  kable()
+
+```
+
+It is evident that a greater proportion of adverse events are reported by women, 
+and this pattern is remarkably consistent over time. We would posit that this is 
+not purely biological but reflective of a greater sensitivity to abnormal reactions
+and a willlingness to report these abnormalities among women compared to men. We'll
+delve more into this when we look deeply at the 2020 data. 
+
+

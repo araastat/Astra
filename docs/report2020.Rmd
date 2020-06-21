@@ -1,0 +1,177 @@
+---
+title: "Report 2020"
+author: "Abhijit Dasgupta, PhD"
+date: "6/21/2020"
+output: 
+  html_document:
+    theme: journal
+    highlight: zenburn
+    toc: true
+    toc_float: true
+---
+
+```{r setup, echo=T, cache=T, warning=F, message=F}
+knitr::opts_chunk$set(echo = TRUE, warning=F, message=F)
+library(tidyverse)
+library(data.table)
+library(here)
+library(patchwork)
+drugs <- fread(here('data/drugs_2020.csv')) %>% as_tibble()
+other <- fread(here('data/other_2020.csv')) %>% as_tibble()
+
+quals_key = tribble(~code,~qualification,
+                    1, 'Physician',
+                    2, 'Pharmacist',
+                    3, 'Other health professional',
+                    4, 'Lawyer',
+                    5, 'Consumer or non-health professional')
+outcome_key <- tribble(~code, ~outcome,
+                       1, 'Recovered',
+                       2, 'Recovering',
+                       3, 'Not recovered',
+                       4, 'Recovered with sequelae',
+                       5, 'Fatal',
+                       6, 'Unknown')
+other <- other %>% 
+  mutate(serious_type = case_when(
+    seriousnessdeath==1 & !is.na(seriousnessdeath) ~ 'death',
+    seriousnessdisabling==1 & !is.na(seriousnessdisabling) ~ 'disabling',
+    seriousnesshospitalization==1 & !is.na(seriousnesshospitalization) ~ 'hospitalization',
+    seriousnesslifethreatening==1 & !is.na(seriousnesslifethreatening) ~ 'lifethreatening',
+    # seriousnesscongenitalanomali==1 & !is.na(seriousnesscongenitalanomali) ~ 'congenital',
+    seriousnessother==1 & !is.na(seriousnessother) ~ 'other',
+    serious==2 & !is.na(serious) ~ 'not serious'
+  )) %>% 
+  left_join(quals_key, by = c('primarysource.qualification'='code')) %>% 
+  left_join(outcome_key, by=c('reactionoutcome'='code'))
+
+drugs <- mutate(drugs, drugindication = ifelse(drugindication=='', NA, drugindication))
+
+composite <- drugs %>% select(drugindication, patid) %>% distinct() %>% 
+  left_join(other %>% select(patid,  patient.patientsex, serious_type, qualification, reactionmeddrapt, outcome, country=primarysource.reportercountry) %>% 
+              distinct())
+composite_us = composite %>% filter(country=='US')
+
+```
+
+# Introduction
+
+In this report we are looking at the data available for 2020 from the FDA adverse events
+reporting system (FAERS). The raw data files were downloaded using an R script (`ingest.R`), 
+and then the JSON files were processed and cleaned using a Python script (`python/data_ingestion.py`).
+This resulted in 2 files, one for drug information and one for other information. In total, we have
+data on `r length(unique(drugs$patid))` adverse event reports. 
+
+As in our temporal patterns report, we will mainly focus here on understand the characteristics
+of who reports adverse events into this database. We had already seen in the temporal report that over
+60% of the reports are from females. Let's start from there. 
+
+# USA
+## Severity of adverse events and gender
+
+```{r}
+composite_us %>% mutate(patient.patientsex = as.character(patient.patientsex), 
+                     sex = case_when(patient.patientsex=='1' ~ 'Male',
+  patient.patientsex=='2' ~ 'Female',
+  TRUE ~ '')) %>% 
+  mutate(sex = ifelse(sex == '', NA, sex)) %>% 
+  tabyl(serious_type, sex, show_na=F) %>% 
+  adorn_percentages() %>% adorn_totals('col') %>% adorn_pct_formatting() %>% 
+  rename(Seriousness=serious_type) %>% 
+  kable()
+```
+
+We see that for death, we have roughly the same gender ratio, which we would expect. 
+
+## Severity of adverse events and qualifications of reporter
+
+```{r}
+composite_us %>% select(patid, serious_type, qualification) %>% distinct() %>% 
+  tabyl(serious_type, qualification,show_na=F) %>% 
+  adorn_percentages() %>% adorn_totals('col') %>% adorn_pct_formatting() %>% 
+  rename(Seriousness=serious_type) %>% 
+  kable()
+```
+
+This pains an interesting, though perhaps expected, picture. Healthcare professionals
+account for the majority of reported deaths, but two-thirds of the non-serious events
+are reported by consumers on non-health professionals. Let's dig a little deeper into
+the non-serious events.
+
+```{r}
+composite_us %>% filter(serious_type=='not serious') %>% 
+  count(reactionmeddrapt) %>% 
+  slice_max(n, n=10) -> top10
+  top10 %>% kable(caption = 'Top 10 non-serious events reported')
+```
+
+This table shows that the most common reported non-serious event by far is that the drug
+is ineffective.
+
+```{r}
+plt1 <- composite_us %>% filter(reactionmeddrapt %in% top10$reactionmeddrapt, !is.na(reactionmeddrapt),
+                             !is.na(qualification)) %>% 
+  ggplot(aes(x = reactionmeddrapt, fill = qualification)) + geom_bar(position='fill') + 
+  scale_y_continuous('Percent', label = scales::percent_format()) + 
+  labs(x='')+
+  coord_flip() +
+  theme_classic()
+plt2 <- composite_us %>% 
+  filter(reactionmeddrapt %in% top10$reactionmeddrapt,
+         !is.na(reactionmeddrapt), !is.na(patient.patientsex) )%>% 
+  mutate(sex = case_when(patient.patientsex==1 ~ 'Male', patient.patientsex==2 ~ 'Female', 
+                         patient.patientsex==0 ~ ''),
+         sex = ifelse(sex=='', NA, sex)) %>% 
+  filter(!is.na(sex)) %>% 
+  ggplot(aes(x = reactionmeddrapt, fill = sex)) + 
+  geom_bar(position='fill') + 
+  scale_y_continuous('Percent', label=scales::percent_format())+
+  labs(x='')+
+  coord_flip() +
+  theme_classic()
+
+plt1 / plt2
+```
+
+Looking at the gender of the patients and the qualification of the reporters for these top 10 non-serious
+events, we see that females dominate even more, and around 50% of reporters are not health professionals. We note that of these top 10, several are conditions that are perceived and cannot be effectively ascertained objectively, like the feeling of effectiveness, fatigue, headache, malaise, nausea and pain. Men might be
+conditioned to "tough it out" and not report these conditions, unlike women, which may contribute to the 
+observed disparity in reporting these events between genders. 
+
+> We note here that an individual can report multiple events, so the percentages above are not independent. 
+
+# Global
+
+```{r}
+plt1 <- composite %>% select(patid, patient.patientsex, country) %>% distinct() %>% 
+  filter(country %in% top20$country, !is.na(patient.patientsex)) %>% 
+  mutate(sex = case_when(patient.patientsex==1 ~ 'Male', patient.patientsex==2 ~ 'Female', NA ~ ''), sex = ifelse(sex=='', NA, sex)) %>% 
+  mutate(country = fct_infreq(country)) %>% 
+  filter(!is.na(sex)) %>%  
+  ggplot(aes(x = country, fill = as.factor(sex))) + 
+  geom_bar(position='fill') + 
+  geom_hline(yintercept = 0.5, linetype=2) + 
+  labs(x = 'Country', y = 'Percent', fill = 'Gender') + 
+  scale_y_continuous(label = scales::percent_format())
+
+plt2 <- composite %>% select(patid, country, serious_type) %>% distinct() %>% 
+  filter(country %in% top20$country, !is.na(country), !is.na(serious_type))  %>% 
+  mutate(country = fct_infreq(country)) %>% 
+  ggplot(aes(x = country, fill = serious_type)) + geom_bar(position='fill') +
+  scale_y_continuous('Percent', label = scales::percent_format())+
+  labs(x = 'Country', fill = 'Seriousness')
+
+plt3 <- composite %>% select(patid, country, qualification) %>% distinct() %>% 
+  filter(country %in% top20$country, !is.na(country), !is.na(qualification))  %>% 
+  mutate(country = fct_infreq(country)) %>% 
+  ggplot(aes(x = country, fill = qualification)) + geom_bar(position='fill') +
+  scale_y_continuous('Percent', label = scales::percent_format())+
+  labs(x = 'Country', fill = 'Qualification')
+
+plt1 / plt2 / plt3
+```
+
+The above three plots show that the US is somewhat different than the rest of the world, especially regarding 
+reporting non-serious events and who is doing the reporting. There is a wide variety of profiles across
+countries regarding the qualifications of the reporter. In several countries, most of the reporting is done
+by consumers or non-health professionals, while in others, almost all is done by health-related professionals. 
