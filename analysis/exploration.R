@@ -122,3 +122,30 @@ freq_gender %>% filter(term!= '0') %>%
   adorn_pct_formatting()
 
 
+monthly <- as.character(1:12) %>% str_pad(2, side='left', pad='0')
+dt <- expand.grid(yrs[-17], monthly) %>% unite('dt',c('Var1','Var2'), sep='', remove=F) %>% arrange(dt) %>% 
+  mutate(start_date='01')
+month_ends = tribble(~monthly,~end_date,
+                     '01','31',
+                     '02','28',
+                     '03','31',
+                     '04','30',
+                     '05','31','06','30','07','31','08','31', '09','30','10','31','11','30','12','31')
+dt <- dt %>% left_join(month_ends, by = c('Var2'='monthly')) 
+dt <- dt %>% 
+  mutate(start_date = paste0(dt, start_date), end_date = paste0(dt, end_date), 
+         query_date = glue::glue('[{start_date}+TO+{end_date}]'))
+api <- readLines(here('Personal/apikey.txt'))
+bl=map(dt$query_date, ~fda_query('/drug/event.json') %>% fda_api_key(api) %>% 
+         fda_filter('receivedate', .x) %>% 
+      fda_count('patient.patientsex') %>% 
+      fda_exec())
+dt$n = map_int(bl, ~sum(.x$count))
+
+ggplot(dt, aes(x = as.Date(start_date, '%Y%m%d'), y = n))+
+  geom_line() + 
+  scale_y_log10('Number of reports', labels = scales::comma_format())+
+  scale_x_date('Year', date_breaks='1 year', labels = scales::date_format('%Y')) +
+  theme_bw()
+
+
