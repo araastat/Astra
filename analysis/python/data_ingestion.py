@@ -125,16 +125,22 @@ def normalize_other(d):
             if nms[0] in d.keys():
                 if nms[1] in d[nms[0]].keys():
                     x[k] = d[nms[0]][nms[1]]
+                else:
+                    x[k] = np.nan
             else:
                 x[k]=np.nan
         else:
             if k in d.keys():
                 x[k] = d[k]
+            else:
+                x[k] = np.nan
     for k in keep_cols_reaction:
         nms = k.split('.')
         d0 = json_normalize(d['patient']['reaction'])
         if k in d0.columns:
             x[k] = d0[k]
+        else:
+            x[k]=np.nan
     D = pd.DataFrame(x)
     D['patid'] = d['patid']
     return(D)
